@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dotX12/traffic-guard/internal/domain"
+	"github.com/serj1974-maker/traffic-guard/internal/domain"
 
 	"github.com/rs/zerolog"
 )

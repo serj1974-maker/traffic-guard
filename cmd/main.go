@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dotX12/traffic-guard/internal/logger"
-	"github.com/dotX12/traffic-guard/internal/service"
+	"github.com/serj1974-maker/traffic-guard/internal/logger"
+	"github.com/serj1974-maker/traffic-guard/internal/service"
 )
 
 var (
