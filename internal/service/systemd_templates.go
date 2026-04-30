@@ -164,7 +164,7 @@ process_log() {
     grep "$pattern" "$tmpfile" 2>/dev/null | while IFS= read -r line; do
         # Extract timestamp: ISO format (first field) or traditional syslog (first three fields)
         tm=$(echo "$line" | awk '{
-            if ($1 ~ /^[0-9]{4}-/) { print $1 }
+            if ($1 ~ /^[0-9][0-9][0-9][0-9]-/) { print $1 }
             else { print $1, $2, $3 }
         }')
 
