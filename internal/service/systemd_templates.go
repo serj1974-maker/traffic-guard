@@ -167,6 +167,7 @@ process_log() {
             if ($1 ~ /^[0-9][0-9][0-9][0-9]-/) { print $1 }
             else { print $1, $2, $3 }
         }')
+        tm=$(date -d "$tm" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$tm")
 
         # Extract source IP
         ip=$(echo "$line" | grep -oE 'SRC=[0-9a-fA-F:.]+' | head -1 | cut -d'=' -f2)
