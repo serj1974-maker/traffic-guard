@@ -69,15 +69,15 @@ WantedBy=timers.target
 	// AggregateLogsScriptTemplate is the bash script for log aggregation
 	AggregateLogsScriptTemplate = `#!/bin/bash
 # TrafficGuard Log Aggregation Script
-# Aggregates iptables logs into CSV format with ASN/netname lookup
+# Full dump of all requests with ASN/netname lookup
 #
-# Output CSV format: IP_TYPE|IP_ADDRESS|ASN|NETNAME|COUNT|LAST_SEEN
-# Example: v4|1.2.3.4|AS12345|EXAMPLE-NET|42|2026-01-26T12:34:56
+# Output CSV format: DATETIME|IP_ADDRESS|ASN|NETNAME|PORT|
+# Example: 2026-01-26T12:34:56|1.2.3.4|AS12345|EXAMPLE-NET|22|
 #
 # Features:
 # - Whois lookup with caching (RIPE database with auto-referrals)
 # - Atomic log rotation (grab -> clear -> process)
-# - Merges with existing data and sorts by count
+# - Appends each request as individual record
 
 set -uo pipefail
 
@@ -91,7 +91,6 @@ TEMP_IPV6="/tmp/antiscan-ipv6-$$.tmp"
 
 # Create whois cache if doesn't exist, clean if older than 1 day
 if [ -f "$WHOIS_CACHE" ]; then
-    # Remove cache if older than 1 day
     find "$WHOIS_CACHE" -mtime +1 -delete 2>/dev/null || true
 fi
 touch "$WHOIS_CACHE"
@@ -118,7 +117,6 @@ get_ip_info() {
     # Check cache first
     local cached=$(grep "^${ip}|" "$WHOIS_CACHE" 2>/dev/null | head -1)
     if [ -n "$cached" ]; then
-        # Return cached result (format: IP|ASN|NETNAME)
         echo "$cached" | cut -d'|' -f2-
         return
     fi
@@ -133,10 +131,7 @@ get_ip_info() {
     local whois_output=$(timeout 3 whois -h "$whois_server" "$ip" 2>/dev/null || echo "")
 
     if [ -n "$whois_output" ]; then
-        # Extract ASN from origin: line only
         asn=$(echo "$whois_output" | grep -iE "^origin:" | head -1 | awk '{print $2}' | sed 's/AS//gi' | tr -d '\r\n ')
-
-        # Extract netname from netname: line only
         netname=$(echo "$whois_output" | grep -iE "^netname:" | head -1 | awk '{print $2}' | tr -d '\r\n')
     fi
 
@@ -145,74 +140,57 @@ get_ip_info() {
         asn=""
     fi
 
-    # If empty, set defaults
     [ -z "$asn" ] && asn="UNKNOWN"
     [ -z "$netname" ] && netname="UNKNOWN"
 
-    # Add AS prefix if missing
     if [ "$asn" != "UNKNOWN" ] && ! echo "$asn" | grep -q "^AS"; then
         asn="AS${asn}"
     fi
 
-    # Save to cache
     echo "${ip}|${asn}|${netname}" >> "$WHOIS_CACHE"
-
     echo "${asn}|${netname}"
 }
 
 # Create CSV header if file doesn't exist
 if [ ! -f "$OUTPUT_CSV" ]; then
-    echo "IP_TYPE|IP_ADDRESS|ASN|NETNAME|COUNT|LAST_SEEN" > "$OUTPUT_CSV"
+    echo "DATETIME|IP_ADDRESS|ASN|NETNAME|PORT|" > "$OUTPUT_CSV"
 fi
 
-# Process grabbed logs
-TEMP_NEW="/tmp/antiscan-new-$$.tmp"
-> "$TEMP_NEW"
+# Process each log line individually and append to CSV
+process_log() {
+    local tmpfile="$1"
+    local pattern="$2"
+
+    grep "$pattern" "$tmpfile" 2>/dev/null | while IFS= read -r line; do
+        # Extract timestamp: ISO format (first field) or traditional syslog (first three fields)
+        tm=$(echo "$line" | awk '{
+            if ($1 ~ /^[0-9]{4}-/) { print $1 }
+            else { print $1, $2, $3 }
+        }')
+
+        # Extract source IP
+        ip=$(echo "$line" | grep -oE 'SRC=[0-9a-fA-F:.]+' | head -1 | cut -d'=' -f2)
+        [ -z "$ip" ] && continue
+
+        # Extract destination port
+        port=$(echo "$line" | grep -oE 'DPT=[0-9]+' | head -1 | cut -d'=' -f2)
+        [ -z "$port" ] && port="UNKNOWN"
+
+        info=$(get_ip_info "$ip")
+        echo "${tm}|${ip}|${info}|${port}|" >> "$OUTPUT_CSV"
+    done
+}
 
 if [ -f "$TEMP_IPV4" ] && [ -s "$TEMP_IPV4" ]; then
-    grep 'ANTISCAN-v4:' "$TEMP_IPV4" | grep -oE 'SRC=[0-9.]+' | sed 's/SRC=//' | sort | uniq -c | while read cnt ip; do
-        # Get timestamp for this IP (last occurrence)
-        tm=$(grep "SRC=$ip" "$TEMP_IPV4" | tail -1 | awk '{print $1}')
-        info=$(get_ip_info "$ip")
-        echo "v4|${ip}|${info}|${cnt}|${tm}" >> "$TEMP_NEW"
-    done
+    process_log "$TEMP_IPV4" "ANTISCAN-v4:"
 fi
 
 if [ -f "$TEMP_IPV6" ] && [ -s "$TEMP_IPV6" ]; then
-    grep 'ANTISCAN-v6:' "$TEMP_IPV6" | grep -oE 'SRC=[0-9a-fA-F:]+' | sed 's/SRC=//' | sort | uniq -c | while read cnt ip; do
-        # Get timestamp for this IP (last occurrence)
-        tm=$(grep "SRC=$ip" "$TEMP_IPV6" | tail -1 | awk '{print $1}')
-        info=$(get_ip_info "$ip")
-        echo "v6|${ip}|${info}|${cnt}|${tm}" >> "$TEMP_NEW"
-    done
-fi
-
-# Merge with existing CSV if there's new data
-if [ -s "$TEMP_NEW" ]; then
-    {
-        echo "IP_TYPE|IP_ADDRESS|ASN|NETNAME|COUNT|LAST_SEEN"
-        cat "$OUTPUT_CSV" "$TEMP_NEW" | awk -F'|' '
-        NR==1 { next }
-        NF==6 {
-            key = $1 "|" $2
-            count[key] += $5
-            time[key] = $6
-            asn[key] = $3
-            netname[key] = $4
-        }
-        END {
-            for (k in count) {
-                split(k, p, "|")
-                print p[1] "|" p[2] "|" asn[k] "|" netname[k] "|" count[k] "|" time[k]
-            }
-        }' | sort -t'|' -k5 -nr
-    } > "${OUTPUT_CSV}.new"
-
-    mv "${OUTPUT_CSV}.new" "$OUTPUT_CSV"
+    process_log "$TEMP_IPV6" "ANTISCAN-v6:"
 fi
 
 # Cleanup
-rm -f "$TEMP_NEW" "$TEMP_IPV4" "$TEMP_IPV6"
+rm -f "$TEMP_IPV4" "$TEMP_IPV6"
 
 exit 0
 `
