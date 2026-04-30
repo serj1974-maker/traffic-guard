@@ -190,7 +190,7 @@ sudo traffic-guard full -u file:///tmp/my-blocklist.txt
 
 ```bash
 # 1. Установка
-curl -fsSL https://raw.githubusercontent.com/dotX12/traffic-guard/master/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/serj1974-maker/traffic-guard/master/install.sh | sudo bash
 
 # 2. Запуск с базовой защитой
 sudo traffic-guard full \
@@ -207,13 +207,13 @@ tail -f /var/log/iptables-scanners-aggregate.csv
 Скачайте и запустите установочный скрипт:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dotX12/traffic-guard/master/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/serj1974-maker/traffic-guard/master/install.sh | sudo bash
 ```
 
 или
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/dotX12/traffic-guard/master/install.sh | sudo bash
+wget -qO- https://raw.githubusercontent.com/serj1974-maker/traffic-guard/master/install.sh | sudo bash
 ```
 
 Скрипт автоматически:
@@ -225,7 +225,7 @@ wget -qO- https://raw.githubusercontent.com/dotX12/traffic-guard/master/install.
 
 ### Ручная установка
 
-1. Скачайте нужный бинарник из [последнего релиза](https://github.com/dotX12/traffic-guard/releases/latest):
+1. Скачайте нужный бинарник из [последнего релиза](https://github.com/serj1974-maker/traffic-guard/releases/latest):
 
    - `traffic-guard-linux-amd64` - для 64-битных систем
    - `traffic-guard-linux-386` - для 32-битных систем
